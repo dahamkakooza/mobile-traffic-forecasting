@@ -1,4 +1,3 @@
-markdown
 # Mobile Network Traffic Forecasting
 
 ## Assignment Overview
