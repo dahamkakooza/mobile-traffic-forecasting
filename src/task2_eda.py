@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Task 2: Exploratory Data Analysis
-All required plots and analyses for mobile network traffic
+All 7 required analyses + supplementary figures
 """
 
 import pandas as pd
@@ -15,42 +15,46 @@ from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
 import warnings
 warnings.filterwarnings('ignore')
 
-# Set style for better looking plots
+# Set style
 plt.style.use('seaborn-v0_8-darkgrid')
 sns.set_palette("husl")
 
-# Load the processed data
+# Load processed data
 print("="*60)
 print("TASK 2: EXPLORATORY DATA ANALYSIS")
 print("="*60)
 
-print("\nLoading processed data...")
 df = pd.read_parquet('../data/processed/traffic_optimized.parquet')
 print(f"Loaded {len(df):,} rows")
 print(f"Time range: {df['Time Interval'].min()} to {df['Time Interval'].max()}")
 
-# Create output directory for figures
+# Create output directory
 import os
 os.makedirs('../output/figures', exist_ok=True)
 
-# -------------------------------------------------------------------
-# I. Probability Density Function of Total Traffic per Square
-# -------------------------------------------------------------------
-print("\n[I. Computing PDF of total traffic per square]")
-
+# Get highest traffic square
 total_per_square = df.groupby('Square id')['Internet traffic activity'].sum().reset_index()
+total_per_square = total_per_square.sort_values('Internet traffic activity', ascending=False)
+highest_square = int(total_per_square.iloc[0]['Square id'])
+print(f"Highest traffic square: {highest_square}")
 
+# ============================================================
+# Figure 1: PDF of Total Traffic per Square
+# ============================================================
+print("\n[I. Generating PDF plot]")
 fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
-# Histogram with KDE
-axes[0].hist(total_per_square['Internet traffic activity'], bins=50, density=True, alpha=0.7, edgecolor='black')
+# Linear scale
+axes[0].hist(total_per_square['Internet traffic activity'], bins=50, density=True, 
+             alpha=0.7, edgecolor='black')
 axes[0].set_xlabel('Total Internet Traffic (2 months)')
 axes[0].set_ylabel('Density')
 axes[0].set_title('PDF of Total Traffic per Square')
 axes[0].grid(True, alpha=0.3)
 
-# Log-scale to better visualize distribution
-axes[1].hist(np.log1p(total_per_square['Internet traffic activity']), bins=50, density=True, alpha=0.7, edgecolor='black', color='orange')
+# Log scale
+axes[1].hist(np.log1p(total_per_square['Internet traffic activity']), bins=50, 
+             density=True, alpha=0.7, edgecolor='black', color='orange')
 axes[1].set_xlabel('Log(Total Internet Traffic + 1)')
 axes[1].set_ylabel('Density')
 axes[1].set_title('PDF (Log Scale)')
@@ -61,34 +65,31 @@ plt.savefig('../output/figures/01_pdf_traffic_per_square.png', dpi=150, bbox_inc
 plt.close()
 print("  ✓ Saved: 01_pdf_traffic_per_square.png")
 
-# Statistics
-print(f"  Mean traffic: {total_per_square['Internet traffic activity'].mean():,.2f}")
-print(f"  Median traffic: {total_per_square['Internet traffic activity'].median():,.2f}")
-print(f"  Skewness: {total_per_square['Internet traffic activity'].skew():.2f}")
+# ============================================================
+# Figure 2: Time Series for Three Areas (First 14 Available Days)
+# ============================================================
+print("\n[II. Generating time series plot]")
 
-# -------------------------------------------------------------------
-# II. Time Series for Three Specific Areas (First Two Weeks)
-# -------------------------------------------------------------------
-print("\n[II. Plotting time series for 3 specific areas]")
+areas = [highest_square, 4159, 4556]
+area_names = [f'Highest Traffic ({highest_square})', 'Square 4159', 'Square 4556']
 
-areas = [6169, 4159, 4556]  # highest, 4159, 4556
-area_names = ['Highest Traffic (6169)', 'Square 4159', 'Square 4556']
-
-fig, axes = plt.subplots(3, 1, figsize=(15, 10))
+fig, axes = plt.subplots(3, 1, figsize=(14, 10))
 
 for idx, (area, name) in enumerate(zip(areas, area_names)):
-    # Filter for the specific area and first two weeks
     area_data = df[df['Square id'] == area].copy()
-    two_weeks = area_data[area_data['Time Interval'] <= '2013-11-14']
+    area_data = area_data.sort_values('Time Interval')
     
-    axes[idx].plot(two_weeks['Time Interval'], two_weeks['Internet traffic activity'], linewidth=1)
-    axes[idx].set_title(f'{name}', fontsize=12)
+    # Take first 14 days of available data
+    unique_days = area_data['Time Interval'].dt.date.unique()
+    first_14_days = unique_days[:14]
+    two_weeks = area_data[area_data['Time Interval'].dt.date.isin(first_14_days)]
+    
+    print(f"  {name}: {len(two_weeks)} rows, traffic max={two_weeks['Internet traffic activity'].max():.2f}")
+    
+    axes[idx].plot(two_weeks['Time Interval'], two_weeks['Internet traffic activity'], linewidth=1.5)
+    axes[idx].set_title(name, fontsize=12)
     axes[idx].set_ylabel('Internet Traffic Activity')
     axes[idx].grid(True, alpha=0.3)
-    
-    # Add statistics
-    axes[idx].text(0.02, 0.95, f'Mean: {two_weeks["Internet traffic activity"].mean():.2f}', 
-                   transform=axes[idx].transAxes, fontsize=9, verticalalignment='top')
 
 axes[2].set_xlabel('Time Interval')
 plt.tight_layout()
@@ -96,16 +97,14 @@ plt.savefig('../output/figures/02_time_series_three_areas.png', dpi=150, bbox_in
 plt.close()
 print("  ✓ Saved: 02_time_series_three_areas.png")
 
-# -------------------------------------------------------------------
-# III. Stationarity Analysis (Rolling Statistics + ADF Test)
-# -------------------------------------------------------------------
-print("\n[III. Stationarity Analysis]")
+# ============================================================
+# Figure 3: Rolling Statistics + ADF Test
+# ============================================================
+print("\n[III. Generating stationarity plots]")
 
-# Use Square 6169 (highest traffic) for analysis
-series = df[df['Square id'] == 6169].set_index('Time Interval')['Internet traffic activity']
-series = series.resample('1H').mean().dropna()  # Resample to hourly for faster analysis
+series = df[df['Square id'] == highest_square].set_index('Time Interval')['Internet traffic activity']
+series = series.resample('H').mean().dropna()
 
-# Rolling statistics
 rolling_mean = series.rolling(window=24).mean()
 rolling_std = series.rolling(window=24).std()
 
@@ -114,7 +113,7 @@ fig, axes = plt.subplots(2, 1, figsize=(14, 8))
 axes[0].plot(series, label='Original', alpha=0.7)
 axes[0].plot(rolling_mean, label='24-hour Rolling Mean', color='red', linewidth=2)
 axes[0].set_title('Original Series with Rolling Mean')
-axes[0].set_ylabel('Internet Traffic Activity')
+axes[0].set_ylabel('Internet Traffic')
 axes[0].legend()
 axes[0].grid(True, alpha=0.3)
 
@@ -128,30 +127,20 @@ axes[1].grid(True, alpha=0.3)
 plt.tight_layout()
 plt.savefig('../output/figures/03_rolling_statistics.png', dpi=150, bbox_inches='tight')
 plt.close()
+
+adf_result = adfuller(series.dropna())
+print(f"  ADF Statistic: {adf_result[0]:.4f}")
+print(f"  p-value: {adf_result[1]:.4f}")
+print(f"  Critical values: {adf_result[4]}")
 print("  ✓ Saved: 03_rolling_statistics.png")
 
-# ADF Test
-print("\n  Augmented Dickey-Fuller Test:")
-adf_result = adfuller(series.dropna())
-print(f"    ADF Statistic: {adf_result[0]:.4f}")
-print(f"    p-value: {adf_result[1]:.4f}")
-print(f"    Critical values:")
-for key, value in adf_result[4].items():
-    print(f"      {key}: {value:.4f}")
-    
-if adf_result[1] < 0.05:
-    print("    ✓ Series is STATIONARY (reject H0)")
-else:
-    print("    ✗ Series is NON-STATIONARY (fail to reject H0)")
+# ============================================================
+# Figure 4: Decomposition
+# ============================================================
+print("\n[IV. Generating decomposition plot]")
 
-# -------------------------------------------------------------------
-# IV. Time Series Decomposition
-# -------------------------------------------------------------------
-print("\n[IV. Time Series Decomposition]")
-
-# Use 10-minute data for decomposition (need at least 2 periods)
-decomp_series = df[df['Square id'] == 6169].set_index('Time Interval')['Internet traffic activity']
-decomp_series = decomp_series[:144*3]  # 3 days for faster computation
+decomp_series = df[df['Square id'] == highest_square].set_index('Time Interval')['Internet traffic activity']
+decomp_series = decomp_series[:144*3]
 
 try:
     decomposition = seasonal_decompose(decomp_series, model='additive', period=144)
@@ -182,25 +171,21 @@ try:
 except Exception as e:
     print(f"  Decomposition skipped: {e}")
 
-# -------------------------------------------------------------------
-# V. Autocorrelation (ACF) and Partial Autocorrelation (PACF)
-# -------------------------------------------------------------------
-print("\n[V. ACF and PACF Plots]")
+# ============================================================
+# Figure 5: ACF and PACF
+# ============================================================
+print("\n[V. Generating ACF/PACF plots]")
 
 fig, axes = plt.subplots(2, 1, figsize=(14, 8))
 
-# Plot ACF
-plot_acf(series.dropna(), lags=48, ax=axes[0], alpha=0.05)
-axes[0].set_title('Autocorrelation Function (ACF) - 48 lags')
-axes[0].set_xlabel('Lags')
-axes[0].set_ylabel('Autocorrelation')
+plot_acf(series.dropna(), lags=72, ax=axes[0], alpha=0.05)
+axes[0].set_title('Autocorrelation Function (ACF) - 72 lags')
+axes[0].set_xlabel('Lags (hours)')
 axes[0].grid(True, alpha=0.3)
 
-# Plot PACF
-plot_pacf(series.dropna(), lags=48, ax=axes[1], alpha=0.05, method='ywm')
-axes[1].set_title('Partial Autocorrelation Function (PACF) - 48 lags')
-axes[1].set_xlabel('Lags')
-axes[1].set_ylabel('Partial Autocorrelation')
+plot_pacf(series.dropna(), lags=72, ax=axes[1], alpha=0.05, method='ywm')
+axes[1].set_title('Partial Autocorrelation Function (PACF) - 72 lags')
+axes[1].set_xlabel('Lags (hours)')
 axes[1].grid(True, alpha=0.3)
 
 plt.tight_layout()
@@ -208,18 +193,15 @@ plt.savefig('../output/figures/05_acf_pacf.png', dpi=150, bbox_inches='tight')
 plt.close()
 print("  ✓ Saved: 05_acf_pacf.png")
 
-# -------------------------------------------------------------------
-# VI. Spatial Analysis (Heatmap of Traffic Intensity)
-# -------------------------------------------------------------------
-print("\n[VI. Spatial Analysis - Heatmap]")
+# ============================================================
+# Figure 6: Spatial Heatmap
+# ============================================================
+print("\n[VI. Generating spatial heatmap]")
 
-# Create 100x100 grid
 grid_size = 100
 traffic_grid = np.zeros((grid_size, grid_size))
 
-# Map square ids to grid coordinates (assuming row-major order)
-total_by_square = df.groupby('Square id')['Internet traffic activity'].sum().reset_index()
-for _, row in total_by_square.iterrows():
+for _, row in total_per_square.iterrows():
     square_id = int(row['Square id'])
     if square_id < grid_size * grid_size:
         row_idx = square_id // grid_size
@@ -237,18 +219,14 @@ plt.savefig('../output/figures/06_spatial_heatmap.png', dpi=150, bbox_inches='ti
 plt.close()
 print("  ✓ Saved: 06_spatial_heatmap.png")
 
-# Identify hotspots
-hotspots = total_by_square.nlargest(10, 'Internet traffic activity')
-print("\n  Top 10 traffic hotspots:")
-for _, row in hotspots.iterrows():
-    print(f"    Square {int(row['Square id'])}: {row['Internet traffic activity']:,.2f} units")
+print("\nTop 10 Traffic Hotspots:")
+print(total_per_square.head(10).to_string(index=False))
 
-# -------------------------------------------------------------------
-# VII. Anomaly Detection
-# -------------------------------------------------------------------
-print("\n[VII. Anomaly Detection]")
+# ============================================================
+# Figure 7: Anomaly Detection
+# ============================================================
+print("\n[VII. Generating anomaly detection plot]")
 
-# Use IQR method on hourly aggregated data
 hourly_series = series.copy()
 Q1 = hourly_series.quantile(0.25)
 Q3 = hourly_series.quantile(0.75)
@@ -260,26 +238,88 @@ anomalies = hourly_series[(hourly_series < lower_bound) | (hourly_series > upper
 
 fig, ax = plt.subplots(figsize=(14, 6))
 ax.plot(hourly_series.index, hourly_series.values, label='Hourly Traffic', alpha=0.7)
-ax.scatter(anomalies.index, anomalies.values, color='red', s=50, label=f'Anomalies ({len(anomalies)})', zorder=5)
+ax.scatter(anomalies.index, anomalies.values, color='red', s=50, 
+           label=f'Anomalies ({len(anomalies)})', zorder=5)
 ax.axhline(y=upper_bound, color='orange', linestyle='--', label='Upper Bound')
 ax.axhline(y=lower_bound, color='orange', linestyle='--', label='Lower Bound')
-ax.set_title('Anomaly Detection in Mobile Network Traffic (IQR Method)')
+ax.set_title('Anomaly Detection in Mobile Network Traffic')
 ax.set_xlabel('Time')
-ax.set_ylabel('Internet Traffic Activity')
+ax.set_ylabel('Internet Traffic')
 ax.legend()
 ax.grid(True, alpha=0.3)
 plt.tight_layout()
 plt.savefig('../output/figures/07_anomaly_detection.png', dpi=150, bbox_inches='tight')
 plt.close()
-print("  ✓ Saved: 07_anomaly_detection.png")
+print(f"  ✓ Saved: 07_anomaly_detection.png")
+print(f"  Detected {len(anomalies)} anomalies")
+print(f"  Largest anomaly: {anomalies.max():.2f} at {anomalies.idxmax()}")
 
-print(f"\n  Detected {len(anomalies)} anomalous hours")
-if len(anomalies) > 0:
-    print(f"  Largest anomaly: {anomalies.max():.2f} at {anomalies.idxmax()}")
+# ============================================================
+# Supplementary Figures (Bonus)
+# ============================================================
+print("\n[Generating supplementary figures]")
 
-# -------------------------------------------------------------------
+# Figure 8: Hourly Profile
+hourly_profile = df.copy()
+hourly_profile['Hour'] = hourly_profile['Time Interval'].dt.hour
+hourly_avg = hourly_profile.groupby('Hour')['Internet traffic activity'].mean()
+
+fig, ax = plt.subplots(figsize=(12, 6))
+ax.bar(hourly_avg.index, hourly_avg.values, color='steelblue', alpha=0.7, edgecolor='black')
+ax.set_xlabel('Hour of Day', fontsize=12)
+ax.set_ylabel('Average Traffic', fontsize=12)
+ax.set_title('Average Hourly Traffic Pattern', fontsize=14)
+ax.set_xticks(range(0, 24, 2))
+ax.grid(True, alpha=0.3, axis='y')
+plt.tight_layout()
+plt.savefig('../output/figures/08_hourly_profile.png', dpi=150, bbox_inches='tight')
+plt.close()
+print("  ✓ Saved: 08_hourly_profile.png")
+
+# Figure 9: Weekday vs Weekend
+df_temp = df.copy()
+df_temp['Hour'] = df_temp['Time Interval'].dt.hour
+df_temp['IsWeekend'] = df_temp['Time Interval'].dt.dayofweek >= 5
+
+weekday_profile = df_temp[~df_temp['IsWeekend']].groupby('Hour')['Internet traffic activity'].mean()
+weekend_profile = df_temp[df_temp['IsWeekend']].groupby('Hour')['Internet traffic activity'].mean()
+
+fig, ax = plt.subplots(figsize=(12, 6))
+ax.plot(weekday_profile.index, weekday_profile.values, label='Weekday', linewidth=2, color='blue')
+ax.plot(weekend_profile.index, weekend_profile.values, label='Weekend', linewidth=2, color='red', linestyle='--')
+ax.set_xlabel('Hour of Day', fontsize=12)
+ax.set_ylabel('Average Traffic', fontsize=12)
+ax.set_title('Weekday vs Weekend Traffic Patterns', fontsize=14)
+ax.set_xticks(range(0, 24, 2))
+ax.legend()
+ax.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.savefig('../output/figures/09_weekday_vs_weekend.png', dpi=150, bbox_inches='tight')
+plt.close()
+print("  ✓ Saved: 09_weekday_vs_weekend.png")
+
+# Figure 10: Top 5 Squares Time Series
+top_5_squares = total_per_square.head(5)['Square id'].tolist()
+fig, ax = plt.subplots(figsize=(14, 8))
+
+for square_id in top_5_squares:
+    square_data = df[df['Square id'] == square_id].set_index('Time Interval')['Internet traffic activity']
+    square_data = square_data.resample('D').sum()
+    ax.plot(square_data.index, square_data.values, label=f'Square {square_id}', linewidth=1.5, alpha=0.7)
+
+ax.set_xlabel('Date', fontsize=12)
+ax.set_ylabel('Daily Total Internet Traffic', fontsize=12)
+ax.set_title('Daily Traffic Patterns - Top 5 Squares', fontsize=14)
+ax.legend(loc='upper right')
+ax.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.savefig('../output/figures/10_top5_squares_timeseries.png', dpi=150, bbox_inches='tight')
+plt.close()
+print("  ✓ Saved: 10_top5_squares_timeseries.png")
+
+# ============================================================
 # Summary
-# -------------------------------------------------------------------
+# ============================================================
 print("\n" + "="*60)
 print("TASK 2 COMPLETED SUCCESSFULLY")
 print("="*60)
@@ -291,3 +331,6 @@ print("  04_decomposition.png")
 print("  05_acf_pacf.png")
 print("  06_spatial_heatmap.png")
 print("  07_anomaly_detection.png")
+print("  08_hourly_profile.png (bonus)")
+print("  09_weekday_vs_weekend.png (bonus)")
+print("  10_top5_squares_timeseries.png (bonus)")
