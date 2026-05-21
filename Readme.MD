@@ -111,7 +111,7 @@ text
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/mobile-traffic-forecasting.git
+git clone https://github.com/dahamkakooza/mobile-traffic-forecasting.git
 cd mobile-traffic-forecasting
 2. Install dependencies
 bash
