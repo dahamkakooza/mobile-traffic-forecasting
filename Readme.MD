@@ -118,9 +118,12 @@ bash
 pip install -r requirements.txt
 3. Download the data
 
-Option A: Download raw CSV files from Harvard Dataverse and run src/data_handling.py
+## Data Setup
 
-Place the file in data/processed/
+### Option A: Process raw data (takes longer)
+1. Download raw CSV files from [Harvard Dataverse](https://doi.org/10.7910/DVN/EGZHFV)
+2. Place all 61 CSV files in `data/raw/`
+3. Run `python src/data_handling.py`
 
 4. Run the analysis
 bash
